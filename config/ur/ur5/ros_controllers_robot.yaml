@@ -44,7 +44,7 @@ arm_controller:
       wrist_1_joint: { trajectory: 0.25, goal: 0.1 }
       wrist_2_joint: { trajectory: 0.25, goal: 0.1 }
       wrist_3_joint: { trajectory: 0.25, goal: 0.1 }
-    use_sim_time: false
+    use_sim_time: true
 
 forward_velocity_controller:
   ros__parameters:
@@ -58,7 +58,7 @@ forward_velocity_controller:
     
     interface_name: 
       - velocity
-    use_sim_time: false
+    use_sim_time: true
 forward_position_controller:
   ros__parameters:
     joints:
@@ -68,19 +68,4 @@ forward_position_controller:
       - wrist_1_joint
       - wrist_2_joint
       - wrist_3_joint
-    use_sim_time: false
-# Gripper controller
-rgripper_controller1:
-  ros__parameters:
-    joint: robotiq_85_left_knuckle_joint
-    action_monitor_rate: 20.0
-    goal_tolerance: 0.002
-    max_effort: 100.0
-    stall_velocity_threshold: 0.001
-    stall_timeout: 1.0
-    command_interfaces:
-      - position
-    state_interfaces:
-      - position
-      - velocity
-    use_sim_time: false
+    use_sim_time: true

@@ -1,4 +1,4 @@
-# Copyright (c) 2023
+# Copyright (c) 2026 Intel Corporation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,20 +12,26 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+'''
+ROS2 Jazzy launch file to spawn multiple UR5 robot arms in Gazebo Harmonic
+'''
+
 import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.substitutions import LaunchConfiguration
-from launch.actions import DeclareLaunchArgument, ExecuteProcess, RegisterEventHandler
+from launch.actions import DeclareLaunchArgument, ExecuteProcess, RegisterEventHandler, IncludeLaunchDescription
 from launch.event_handlers import OnProcessExit
 from launch.launch_context import LaunchContext
 from launch_ros.actions import Node
+from launch.launch_description_sources import PythonLaunchDescriptionSource
 from nav2_common.launch import RewrittenYaml
 import yaml, xacro
 
-#https://github.com/bponsler/ros2-support
+
 
 def generate_launch_description():
+
 
     package_path = get_package_share_directory("multi_robot_arm")
     
@@ -33,6 +39,7 @@ def generate_launch_description():
         name="use_sim_time", default_value='true', description="Use simulator time"
     )
     use_sim_time = LaunchConfiguration("use_sim_time", default="true")
+
 
     robot_type = "ur5"  # ROBOT_MODEL  #LaunchConfiguration("robot")
     
@@ -42,47 +49,36 @@ def generate_launch_description():
         default_value=os.path.join(
             package_path,
             "worlds",
-            "empty.world"
+            "empty.sdf"
         ),
         description="Full path to world model file to load",
     )
 
-    declare_world_path = DeclareLaunchArgument(
-        "world",
-        default_value=os.path.join(
-            package_path,
-            "worlds",
-            "empty.world",
-        ),
-        description="Full path to world model file to load",
-    )
 
     declare_robot_type = DeclareLaunchArgument(
         name="robot_type", default_value=robot_type, description="Robot type"
     )
 
-    gazebo_server = ExecuteProcess(
-        cmd=[
-            "gzserver",
-            "--verbose",
-            "-u",
-            "-s", "libgazebo_ros_factory.so",
-            "-s", "libgazebo_ros_init.so",
-            world,
-        ],
-        output="screen",
+
+    # Gazebo Harmonic launch
+    gz_sim = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource([
+            get_package_share_directory('ros_gz_sim'),
+            '/launch/gz_sim.launch.py'
+        ]),
+        launch_arguments={
+            'gz_args': [world, ' -v 4'],
+            'on_exit_shutdown': 'true'
+        }.items()
     )
-    gazebo_client = ExecuteProcess(cmd=["gzclient"], output="screen")
-
-
 
 
     ld = LaunchDescription()
     ld.add_action(declare_world_path)
     ld.add_action(declare_robot_type)
     ld.add_action(declare_use_sim_time)
-    ld.add_action(gazebo_server)
-    ld.add_action(gazebo_client)
+    ld.add_action(gz_sim)
+
 
     robots = [
             {'name': 'arm1', 'x_pose': '-1.5', 'y_pose': '-1.50', 'Y':'0.0'},
@@ -92,6 +88,7 @@ def generate_launch_description():
             # …
             # …
         ]
+
 
     # Multiple ARMs in gazebo must be spawned in a serial fashion due to 
     # a global namespace dependency introduced by ros2_control.
@@ -114,12 +111,15 @@ def generate_launch_description():
     return ld
 
 
+
 def spawn_robot(
         ld, robot_type, robot_name, use_sim_time, x, y, Y,
         previous_final_action=None):
 
+
     package_path = get_package_share_directory("multi_robot_arm")
     namespace = "/" + robot_name
+
 
     param_substitutions = {"use_sim_time": use_sim_time}
     configured_params = RewrittenYaml(
@@ -130,9 +130,11 @@ def spawn_robot(
         convert_types=True,
     )
 
+
     context = LaunchContext()
     controller_paramfile = configured_params.perform(context)
     xacro_path = os.path.join(package_path, "urdf", "ur", "ur5", "ur_urdf.xacro")
+
 
     robot_doc = xacro.process_file(
         xacro_path,
@@ -147,10 +149,13 @@ def spawn_robot(
         },
     )
 
+
     robot_urdf = robot_doc.toprettyxml(indent="  ")
 
 
+
     remappings = [("/tf", "tf"), ("/tf_static", "tf_static")]
+
 
     robot_params = {"robot_description": robot_urdf,
                     "use_sim_time": use_sim_time}
@@ -163,11 +168,14 @@ def spawn_robot(
         parameters=[robot_params],
     )
 
+
     robot_description = {"robot_description": robot_urdf}
+
 
     kinematics_yaml = xacro.load_yaml(
         os.path.join(package_path, "config/ur/" + robot_type + "/kinematics.yaml")
     )
+
 
     robot_description_semantic_config = load_file(
         package_path, "config/ur/" + robot_type + "/robot.srdf"
@@ -176,37 +184,43 @@ def spawn_robot(
         "robot_description_semantic": robot_description_semantic_config
     }
 
-    # Planning Functionality
-    ompl_planning_pipeline_config = {
-        "ompl": {
-            "planning_plugin": "ompl_interface/OMPLPlanner",
-            "request_adapters": "default_planner_request_adapters/AddTimeOptimalParameterization default_planner_request_adapters/FixWorkspaceBounds default_planner_request_adapters/FixStartStateBounds default_planner_request_adapters/FixStartStateCollision default_planner_request_adapters/FixStartStatePathConstraints",
-            "start_state_max_bounds_error": 0.1,
-        },
-    }
 
+    # Planning Functionality
     ompl_planning_yaml = xacro.load_yaml(
         os.path.join(package_path, "config/ur/" + robot_type + "/ompl_planning.yaml")
     )
-
+    
+    ompl_planning_pipeline_config = {
+        "ompl": {
+            "planning_plugin": "ompl_interface/OMPLPlanner",
+            "request_adapters": "default_planner_request_adapters/AddTimeOptimalParameterization default_planner_request_adapters/ResolveConstraintFrames default_planner_request_adapters/FixWorkspaceBounds default_planner_request_adapters/FixStartStateBounds default_planner_request_adapters/FixStartStateCollision default_planner_request_adapters/FixStartStatePathConstraints",
+            "start_state_max_bounds_error": 0.1,
+        }
+    }
+    
     ompl_planning_pipeline_config["ompl"].update(ompl_planning_yaml)
+
 
     joint_limits_yaml = xacro.load_yaml(
         os.path.join(package_path, "config/ur/" + robot_type + "/joint_limits_planning.yaml")
     )
 
+
     joint_limits = {"robot_description_planning": joint_limits_yaml}
+
 
     # Trajectory Execution Functionality
     moveit_simple_controllers_yaml = xacro.load_yaml(
         os.path.join(package_path, "config/ur/" + robot_type + "/moveit_controller_manager.yaml")
     )
 
+
     moveit_controllers = {
         "moveit_simple_controller_manager": moveit_simple_controllers_yaml,
         "moveit_controller_manager":
         "moveit_simple_controller_manager/MoveItSimpleControllerManager",
     }
+
 
     trajectory_execution = {
         "moveit_manage_controllers": True,
@@ -217,23 +231,22 @@ def spawn_robot(
         "trajectory_execution.controller_connection_timeout": 30.0,
     }
 
+
     planning_scene_monitor_parameters = {
         "publish_planning_scene": True,
         "publish_geometry_updates": True,
         "publish_state_updates": True,
         "publish_transforms_updates": True,
-        "default_planning_pipeline": "ESTkConfigDefault",
         "use_sim_time": use_sim_time,
     }
 
-    pipeline_names = {"pipeline_names": ["ompl"]}
 
     planning_pipelines = {
-        "planning_pipelines": pipeline_names,
+        "planning_pipelines": ["ompl"],
         "default_planning_pipeline": "ompl",
     }
 
-    # https://industrial-training-master.readthedocs.io/en/foxy/_source/session3/ros2/3-Build-a-MoveIt-Package.html
+
     # Start the actual move_group node/action server
     robot_move_group_node = Node(
         package="moveit_ros_move_group",
@@ -250,36 +263,31 @@ def spawn_robot(
             planning_scene_monitor_parameters,
             joint_limits,
             planning_pipelines,
-            {"planning_plugin": "ompl", "use_sim_time": use_sim_time},
+            {"use_sim_time": use_sim_time},
         ],
         remappings=remappings,
         arguments=["--ros-args", "--log-level", "info"],
     )
 
 
-    ros_distro = os.environ.get('ROS_DISTRO')
-    
-    # ROS2 Controller Manager in Foxy uses 'start' while Humble version expects 'active'
-
     controller_run_state = 'active'
-    if ros_distro == 'foxy':
-        controller_run_state = 'start'
 
+
+    # Use ros_gz_sim spawn_entity for Gazebo Harmonic
     robot_spawn_entity = Node(
-        package="gazebo_ros",
-        executable="spawn_entity.py",
+        package="ros_gz_sim",
+        executable="create",
         arguments=[
-            "-topic", namespace + "/robot_description",
-            "-entity", robot_name,
-            "-robot_namespace", namespace,
+            "-string", robot_urdf,
+            "-name", robot_name,
             "-x", x,
             "-y", y,
             "-z", "0.0",
             "-Y", Y,
-            "-unpause",
         ],
         output="screen",
     )
+
 
     load_joint_state_controller = ExecuteProcess(
         cmd=[
@@ -294,6 +302,7 @@ def spawn_robot(
         ],
         output="screen",
     )
+
 
     load_arm_trajectory_controller = ExecuteProcess(
         cmd=[
@@ -338,6 +347,7 @@ def spawn_robot(
             ]
             }"""
 
+
     # Set initial joint position for robot.   This step is not needed for Humble 
     # In Humble, initial positions are taken from initial_positions.yaml and set by ros2 control plugin
     set_initial_pose = ExecuteProcess(
@@ -363,6 +373,7 @@ def spawn_robot(
     else:
         spawn_entity = robot_spawn_entity
 
+
     state_controller_event = RegisterEventHandler(
         event_handler=OnProcessExit(
             target_action=robot_spawn_entity,
@@ -376,12 +387,14 @@ def spawn_robot(
         )
     )
 
+
     set_initial_pose_event = RegisterEventHandler(
         event_handler=OnProcessExit(
             target_action=load_arm_trajectory_controller,
             on_exit=[set_initial_pose],
         )
     )
+
 
     ld.add_action(robot_state_publisher)
     ld.add_action(robot_move_group_node)
@@ -390,10 +403,13 @@ def spawn_robot(
     ld.add_action(arm_controller_event)
     ld.add_action(set_initial_pose_event)
 
+
     return load_arm_trajectory_controller
 
 
+
 def load_file(package_path, file_path):
+
 
     absolute_file_path = os.path.join(package_path, file_path)
     try:
