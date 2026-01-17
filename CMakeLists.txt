@@ -20,9 +20,8 @@ install(DIRECTORY launch config urdf worlds scripts DESTINATION share/${PROJECT_
 
 # Install Python scripts
 install(PROGRAMS
-  scripts/ur_pose_goal.py
   scripts/dance_arms.py
-  scripts/test_pose_goals.py
+  scripts/activate_controllers.py
   DESTINATION lib/${PROJECT_NAME}
 )
 ament_environment_hooks("${CMAKE_CURRENT_SOURCE_DIR}/env-hooks/multi_robot_arm.dsv.in")
